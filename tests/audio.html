@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><title>SoundShape — проверка звука</title>
+<h1>Проверка синтеза</h1><pre id="results">Выполняется…</pre>
+<script type="module">
+import { TonePlayer } from '/src/audio/tone-player.ts';
+import { frequencyForMidi } from '/src/music/tuning.ts';
+const results = [];
+const assert = (condition, message) => { if (!condition) throw new Error(message); results.push(`OK: ${message}`); };
+const midi = Array.from({length:24}, (_, i) => 60 + i);
+const originalContext = window.AudioContext;
+async function render(selected, {muted=false, cleared=false, volume=1} = {}) {
+  const context = new OfflineAudioContext(1, 24000, 48000);
+  // Run the production engine on real Web Audio nodes with a deterministic clock.
+  window.AudioContext = function() { return context; };
+  context.resume = async () => {};
+  context.close = async () => {};
+  const player = new TonePlayer(midi);
+  try {
+    player.setVolume(volume);
+    player.setMuted(muted);
+    await player.setNotes(selected);
+    if (cleared) await player.setNotes([]);
+    const buffer = await context.startRendering();
+    return buffer.getChannelData(0);
+  } finally {
+    player.dispose();
+    window.AudioContext = originalContext;
+  }
+}
+const rms = data => Math.sqrt(data.slice(12000).reduce((sum,x) => sum+x*x,0)/12000);
+try {
+  assert(frequencyForMidi(69) === 440, 'Ля4 = 440 Гц');
+  assert(frequencyForMidi(81) === 880, 'Ля5 = 880 Гц');
+  const tone = await render([69]);
+  const amplitude = 1/24;
+  const residual = tone.slice(12000).reduce((sum,x,i) => {
+    const expected = amplitude * Math.sin(2*Math.PI*440*(i+12000)/48000);
+    return sum + (x-expected)**2;
+  },0)/12000;
+  assert(Math.sqrt(residual) < 0.00001, 'PCM одиночного тона совпадает с синусоидой 440 Гц');
+  assert(rms(tone) > 0.02, 'Выбранная нота даёт ненулевой сигнал');
+  const pair = await render([60,69]);
+  const pairResidual = pair.slice(12000).reduce((sum,x,i) => {
+    const t = (i+12000)/48000;
+    const expected = amplitude*(Math.sin(2*Math.PI*frequencyForMidi(60)*t)+Math.sin(2*Math.PI*440*t));
+    return sum + (x-expected)**2;
+  },0)/12000;
+  assert(Math.sqrt(pairResidual) < 0.00001, 'Два голоса совпадают с суммой синусоид без изменения амплитуд');
+  assert(rms(await render([69], {muted:true})) === 0, 'Выключение звука даёт нулевой сигнал');
+  assert(rms(await render([69], {cleared:true})) === 0, 'Сброс нот даёт нулевой сигнал');
+  assert(Math.abs(rms(await render([69], {volume:0.5}))/rms(tone)-0.5)<0.00001, 'Громкость 50% уменьшает амплитуду вдвое');
+  const all = await render(midi);
+  assert(all.every(x => Number.isFinite(x) && Math.abs(x)<=1), 'Все 24 голоса остаются в цифровом диапазоне');
+  assert(Math.abs(tone[0])<0.00001 && Math.abs(tone[1])<0.001, 'Начало ноты имеет плавную огибающую');
+  results.push('Все проверки пройдены.');
+} catch (error) {
+  results.push(`FAIL: ${error.message}`);
+} finally {
+  window.AudioContext = originalContext;
+  document.querySelector('#results').textContent = results.join('\n');
+}
+</script></html>
