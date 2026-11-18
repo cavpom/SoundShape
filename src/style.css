@@ -71,3 +71,27 @@ h2 { font-size: 18px; margin: 0; font-weight: 600; }
 .wave-legend[hidden] { display: none; }
 .wave-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .wave-legend span::before { content: ''; width: 15px; height: 2px; background: var(--wave-color); }
+
+.timbre-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-bottom: 20px; }
+.note-control { display: flex; align-items: center; gap: 12px; font-size: 16px; color: #53645c; }
+.note-control select { font: inherit; color: #355b4c; background: #fffcf6; border: 1px solid #c5cfc3; border-radius: 6px; padding: 8px 32px 8px 12px; }
+.fundamental-frequency { font-size: 14px; color: #687771; font-variant-numeric: tabular-nums; }
+.harmonic-bank { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 8px; padding: 14px 0 0; }
+.harmonic-column { display: flex; flex-direction: column; align-items: center; min-width: 0; --fill: 0%; }
+.harmonic-level { font-size: 14px; font-weight: 600; color: #355b4c; font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+.harmonic-slider { position: relative; height: 200px; width: 44px; }
+.harmonic-rail { position: absolute; inset: 8px 12px; border-radius: 10px; background: #e8ecdf; }
+.harmonic-fill { position: absolute; bottom: 0; width: 100%; height: var(--fill); background: linear-gradient(to top, #a7c6ac, #468761); border-radius: 10px; }
+.harmonic-thumb { position: absolute; width: 30px; height: 12px; left: -5px; bottom: calc(var(--fill) - 6px); border-radius: 5px; background: #355b4c; box-shadow: 0 1px 3px #183f2c22; }
+.harmonic-slider input { position: absolute; inset: 0; margin: 0; width: 44px; height: 200px; writing-mode: vertical-lr; direction: rtl; opacity: 0; cursor: ns-resize; touch-action: none; }
+.harmonic-slider:focus-within .harmonic-rail { outline: 3px solid #bd690e; outline-offset: 5px; }
+.harmonic-number { font-size: 16px; font-weight: 600; margin: 10px 0 4px; }
+.harmonic-frequency { font-size: 12px; font-variant-numeric: tabular-nums; color: #687771; white-space: nowrap; }
+.harmonic-unit { font-size: 12px; color: #687771; }
+.is-zero .harmonic-level { color: #687771; font-weight: 400; }
+.is-zero .harmonic-thumb { background: #87998a; }
+.harmonics-caption { font-size: 14px; color: #687771; margin: 24px 0 0; }
+@media (max-width: 1100px) {
+  .harmonic-bank { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px 6px; }
+  .harmonic-slider, .harmonic-slider input { height: 170px; }
+}

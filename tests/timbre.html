@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><title>SoundShape — проверка тембра</title>
+<h1>Проверка тембра</h1><pre id="results">Выполняется…</pre>
+<script type="module">
+import { HarmonicPlayer } from '/src/audio/harmonic-player.ts';
+import { createHarmonics, initialAmplitudes } from '/src/music/harmonics.ts';
+import { sampleWaves } from '/src/music/waves.ts';
+const results = [];
+const assert = (condition, message) => { if (!condition) throw new Error(message); results.push(`OK: ${message}`); };
+const originalContext = window.AudioContext;
+const rate = 48000;
+async function render(amplitudes, {volume=1, change, stop=false, retune=false} = {}) {
+  const context = new OfflineAudioContext(1, rate*0.4, rate);
+  const realResume = context.resume.bind(context);
+  window.AudioContext = function() { return context; };
+  context.resume = async () => {};
+  context.close = async () => {};
+  const player = new HarmonicPlayer(createHarmonics(440, amplitudes));
+  try {
+    player.setVolume(volume);
+    await player.setPlaying(true);
+    if (change || stop || retune) {
+      const paused = context.suspend(0.2);
+      const rendered = context.startRendering();
+      await paused;
+      if (change) player.setSpectrum(createHarmonics(440, change));
+      if (retune) player.setSpectrum(createHarmonics(880, amplitudes));
+      if (stop) await player.setPlaying(false);
+      await realResume();
+      return (await rendered).getChannelData(0);
+    }
+    return (await context.startRendering()).getChannelData(0);
+  } finally {
+    player.dispose();
+    window.AudioContext = originalContext;
+  }
+}
+function errorFromFormula(data, amplitudes) {
+  const waves = createHarmonics(440, amplitudes);
+  return Math.sqrt(data.slice(rate*0.3).reduce((sum,value,i) => {
+    const t = (rate*0.3+i)/rate;
+    const expected = waves.reduce((s,w) => s + w.amplitude*Math.sin(2*Math.PI*w.frequency*t)/10,0);
+    return sum + (value-expected)**2;
+  },0)/(rate*0.1));
+}
+function rms(data) { const tail = data.slice(rate*0.3); return Math.sqrt(tail.reduce((s,x)=>s+x*x,0)/tail.length); }
+function magnitude(data, frequency) {
+  let sin=0, cos=0;
+  for(let i=rate*0.3;i<data.length;i++) {
+    sin+=data[i]*Math.sin(2*Math.PI*frequency*i/rate);
+    cos+=data[i]*Math.cos(2*Math.PI*frequency*i/rate);
+  }
+  return 2*Math.hypot(sin,cos)/(rate*0.1);
+}
+try {
+  const initial = initialAmplitudes();
+  const spectrum = createHarmonics(440, initial);
+  assert(initial.length===10 && initial[0]===1 && initial.slice(1).every(x=>x===0), 'Начальное состояние: 100%, затем девять нулей');
+  assert(spectrum.every((w,i)=>w.frequency===440*(i+1)), 'Частоты гармоник точно кратны основной');
+  const mix=[1,0.5,0.2,0,0,0.1,0,0,0,0.05];
+  const sampled=sampleWaves(createHarmonics(440,mix),5);
+  assert(sampled.sum[0]===0 && sampled.sum.every((value,i)=>Math.abs(value-sampled.components.reduce((s,w)=>s+w[i],0))<1e-12), 'График суммирует взвешенные гармоники от нулевой фазы');
+  const pure = await render(initial);
+  assert(errorFromFormula(pure,initial)<0.00001, 'Первый ползунок 100% даёт синусоиду 440 Гц');
+  assert(errorFromFormula(await render(mix),mix)<0.00001, 'PCM смеси совпадает с суммой гармоник с заданными амплитудами');
+  const upperOnly=[0,0.5,0,0,0,0,0,0,0,0];
+  assert(errorFromFormula(await render(upperOnly),upperOnly)<0.00001 && rms(await render(upperOnly))>0.01, 'Отключение первой гармоники не отключает остальные');
+  assert(rms(await render(Array(10).fill(0)))===0, 'Десять нулей дают тишину');
+  assert(Math.abs(rms(await render(initial,{volume:0.5}))/rms(pure)-0.5)<0.00001, 'Общая громкость не меняет соотношение гармоник');
+  const all=await render(Array(10).fill(1));
+  assert(all.every(value=>Number.isFinite(value)&&Math.abs(value)<=1), 'Десять гармоник на 100% не выходят из цифрового диапазона');
+  assert(errorFromFormula(await render(initial,{change:mix}),mix)<0.00001, 'Изменение ползунков во время звучания обновляет реальный сигнал');
+  assert(rms(await render(initial,{stop:true}))<0.0000001, 'Выключение звука плавно гасит уже звучащий сигнал');
+  const retuned=await render(initial,{retune:true});
+  assert(Math.abs(magnitude(retuned,880)-0.1)<0.00001 && magnitude(retuned,440)<0.00001, 'Смена основной ноты во время звучания перестраивает частоту');
+  results.push('Все проверки пройдены.');
+} catch(error) {
+  results.push(`FAIL: ${error.message}`);
+} finally {
+  window.AudioContext=originalContext;
+  document.querySelector('#results').textContent=results.join('\n');
+}
+</script></html>

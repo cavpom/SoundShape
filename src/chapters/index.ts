@@ -1,3 +1,4 @@
+import { mountTimbre } from './timbre';
 import { mountWaveShape } from './wave-shape';
 
 export interface Chapter {
@@ -9,4 +10,5 @@ export interface Chapter {
 // Add experiments here; the application shell builds navigation from this list.
 export const chapters: readonly Chapter[] = [
   { id: 'wave-shape', title: 'Форма звука', mount: mountWaveShape },
+  { id: 'timbre', title: 'Тембр', mount: mountTimbre },
 ];

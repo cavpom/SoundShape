@@ -1,6 +1,4 @@
-import { sampleWaves } from '../music/waves';
-import { frequencyForMidi } from '../music/tuning';
-import { noteLabel, type Note } from '../music/notes';
+import { sampleWaves, type WaveComponent } from '../music/waves';
 
 const NS = 'http://www.w3.org/2000/svg';
 let nextId = 0;
@@ -13,7 +11,17 @@ function svgElement<K extends keyof SVGElementTagNameMap>(tag: K, attributes: Re
   return element;
 }
 
-export function createWavePlot(): { element: HTMLElement; setNotes(notes: readonly Note[]): void; dispose(): void } {
+export interface PlotWave extends WaveComponent {
+  readonly label: string;
+}
+
+interface WavePlotOptions {
+  readonly durationMs?: 5 | 10 | 20 | 50 | 100;
+  readonly amplitude?: 1 | 2 | 4 | 8 | 16 | 24;
+  readonly caption?: string;
+}
+
+export function createWavePlot(options: WavePlotOptions = {}): { element: HTMLElement; setWaves(waves: readonly PlotWave[]): void; dispose(): void } {
   const element = document.createElement('section');
   element.className = 'panel wave-panel';
   const id = `wave-plot-${nextId++}`;
@@ -40,7 +48,10 @@ export function createWavePlot(): { element: HTMLElement; setNotes(notes: readon
   const componentsControl = element.querySelector<HTMLInputElement>('input')!;
   const legend = element.querySelector<HTMLElement>('.wave-legend')!;
   const overflow = element.querySelector<HTMLElement>('.plot-overflow')!;
-  let notes: readonly Note[] = [];
+  timeScale.value = String(options.durationMs ?? 20);
+  amplitudeScale.value = String(options.amplitude ?? 4);
+  if (options.caption) element.querySelector('.plot-caption')!.textContent = options.caption;
+  let waves: readonly PlotWave[] = [];
   let lastWidth = -1;
   let resizeFrame = 0;
 
@@ -51,10 +62,10 @@ export function createWavePlot(): { element: HTMLElement; setNotes(notes: readon
     const left = 43, right = width - 14, top = 27, bottom = height - 40;
     const durationMs = Number(timeScale.value);
     const limit = Number(amplitudeScale.value);
-    const samples = sampleWaves(notes.map(note => frequencyForMidi(note.midi)), durationMs);
+    const samples = sampleWaves(waves, durationMs);
     const x = (index: number) => left + index / (samples.times.length - 1) * (right - left);
     const y = (value: number) => top + (limit - value) / (limit * 2) * (bottom - top);
-    const svg = svgElement('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': `Сумма ${notes.length} волн. Время от 0 до ${durationMs} мс. Амплитуда от −${limit} до ${limit} A.` });
+    const svg = svgElement('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': `Волн в сумме: ${waves.length}. Время от 0 до ${durationMs} мс. Амплитуда от −${limit} до ${limit} A.` });
     const defs = svgElement('defs', {});
     const clip = svgElement('clipPath', { id: `${id}-clip` });
     clip.append(svgElement('rect', { x: left, y: top, width: right - left, height: bottom - top }));
@@ -97,10 +108,10 @@ export function createWavePlot(): { element: HTMLElement; setNotes(notes: readon
       ? 'Пики выходят за верхнюю и нижнюю границы. Увеличь диапазон амплитуды, чтобы увидеть их целиком.'
       : `Пики выходят за ${above ? 'верхнюю' : 'нижнюю'} границу. Увеличь диапазон амплитуды, чтобы увидеть их целиком.`;
     legend.replaceChildren();
-    legend.hidden = !componentsControl.checked || notes.length === 0;
-    if (!legend.hidden) notes.forEach((note, index) => {
+    legend.hidden = !componentsControl.checked || waves.length === 0;
+    if (!legend.hidden) waves.forEach((wave, index) => {
       const item = document.createElement('span');
-      item.textContent = noteLabel(note);
+      item.textContent = wave.label;
       item.style.setProperty('--wave-color', colors[index % colors.length]);
       legend.append(item);
     });
@@ -119,8 +130,7 @@ export function createWavePlot(): { element: HTMLElement; setNotes(notes: readon
   render();
   return {
     element,
-    setNotes: selected => { notes = selected; render(); },
+    setWaves: selected => { waves = selected.filter(wave => wave.amplitude > 0); render(); },
     dispose: () => { resizeObserver.disconnect(); cancelAnimationFrame(resizeFrame); },
   };
 }
-

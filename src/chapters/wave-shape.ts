@@ -55,7 +55,7 @@ export function mountWaveShape(container: HTMLElement): void {
   clearButton.disabled = true;
   const piano = createPiano(pianoNotes, notes => {
     selected = notes;
-    plot.setNotes(notes);
+    plot.setWaves(notes.map(note => ({ frequency: frequencyForMidi(note.midi), amplitude: 1, label: noteLabel(note) })));
     selection.textContent = notes.length
       ? notes.map(note => `${noteLabel(note)} · ${frequencyForMidi(note.midi).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} Гц`).join(' / ')
       : 'Ноты пока не выбраны';
@@ -90,4 +90,3 @@ export function mountWaveShape(container: HTMLElement): void {
     plot.dispose();
   });
 }
-
