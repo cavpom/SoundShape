@@ -12,11 +12,16 @@ export function interpolatePitchPosition(pitch: number, centres: ReadonlyMap<num
   return left + (right - left) * (bounded - lower);
 }
 
-/** Read-only keyboard, with a continuous voice marker and smooth camera following. */
-export function createPitchKeyboard(notes: readonly Note[]): {
+/** Voice display and a separately selected reference key, with smooth voice following. */
+export function createPitchKeyboard(
+  notes: readonly Note[],
+  onKeyPress: (midi: number) => void = () => {},
+  onManualScroll: () => void = () => {},
+): {
   element: HTMLElement;
   setPitch(reading: PitchReading | null): void;
   setAutoScroll(enabled: boolean): void;
+  setHeldNote(midi: number | null): void;
   dispose(): void;
 } {
   const element = document.createElement('div');
@@ -30,6 +35,7 @@ export function createPitchKeyboard(notes: readonly Note[]): {
   const keys = new Map<number, HTMLElement>();
   let whiteIndex = 0;
   let current: number | null = null;
+  let held: number | null = null;
   let pitchX: number | null = null;
   let autoScroll = true;
   let followFrame = 0;
@@ -38,8 +44,14 @@ export function createPitchKeyboard(notes: readonly Note[]): {
   let viewportWidth = 0;
   let sidePadding = 0;
   let laidOut = false;
+  let pointer: { id: number; x: number; y: number; scroll: number; touch: boolean; target: Element; dragging: boolean } | null = null;
+  let ignorePointerClick = false;
   for (const note of notes) {
-    const key = document.createElement('div');
+    const key = document.createElement('button');
+    key.type = 'button';
+    key.setAttribute('aria-label', noteLabel(note));
+    key.setAttribute('aria-pressed', 'false');
+    key.addEventListener('click', () => onKeyPress(note.midi));
     key.className = `piano-key ${note.black ? 'black' : 'white'}`;
     key.textContent = noteLabel(note);
     key.dataset.midi = String(note.midi);
@@ -65,6 +77,67 @@ export function createPitchKeyboard(notes: readonly Note[]): {
     lastFrameTime = 0;
   }
 
+  function manualScroll(): void {
+    cancelFollowing();
+    if (autoScroll) {
+      autoScroll = false;
+      onManualScroll();
+    }
+  }
+
+  function endDrag(): void {
+    const active = pointer;
+    pointer = null;
+    element.classList.remove('is-dragging');
+    if (active?.target.hasPointerCapture(active.id)) active.target.releasePointerCapture(active.id);
+  }
+
+  element.addEventListener('pointerdown', event => {
+    if (!event.isPrimary || event.button !== 0 || pointer) return;
+    ignorePointerClick = false;
+    if (!(event.target instanceof Element) || !stage.contains(event.target)) {
+      // Native scrollbar interaction should also stop voice following.
+      if (event.clientY >= element.getBoundingClientRect().top + element.clientHeight) manualScroll();
+      return;
+    }
+    pointer = { id: event.pointerId, x: event.clientX, y: event.clientY,
+      scroll: element.scrollLeft, touch: event.pointerType === 'touch', target: event.target, dragging: false };
+    event.target.setPointerCapture(event.pointerId);
+  });
+  element.addEventListener('pointermove', event => {
+    if (!pointer || event.pointerId !== pointer.id) return;
+    const dx = event.clientX - pointer.x, dy = event.clientY - pointer.y;
+    if (!pointer.dragging) {
+      if (Math.hypot(dx, dy) < 6) return;
+      if (pointer.touch && Math.abs(dy) > Math.abs(dx)) {
+        ignorePointerClick = true;
+        endDrag();
+        return;
+      }
+      pointer.dragging = true;
+      ignorePointerClick = true;
+      element.classList.add('is-dragging');
+      manualScroll();
+    }
+    event.preventDefault();
+    element.scrollLeft = pointer.scroll - dx;
+  }, { passive: false });
+  element.addEventListener('pointerup', event => { if (pointer?.id === event.pointerId) endDrag(); });
+  element.addEventListener('pointercancel', event => { if (pointer?.id === event.pointerId) endDrag(); });
+  element.addEventListener('lostpointercapture', event => { if (pointer?.id === event.pointerId) endDrag(); });
+  element.addEventListener('click', event => {
+    // The generated pointer click after a drag must not toggle a reference key.
+    // A new pointerdown clears this flag; keyboard and assistive clicks (detail 0) still work.
+    if (ignorePointerClick && event.detail !== 0) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+  element.addEventListener('dragstart', event => event.preventDefault());
+  element.addEventListener('wheel', event => {
+    if (event.deltaX !== 0 || event.shiftKey) manualScroll();
+  }, { passive: true });
+  window.addEventListener('blur', endDrag);
   function animateFollow(now: number): void {
     followFrame = 0;
     if (!autoScroll || pitchX === null) return;
@@ -144,7 +217,20 @@ export function createPitchKeyboard(notes: readonly Note[]): {
       if (enabled) follow();
       else cancelFollowing();
     },
+    setHeldNote(midi): void {
+      if (held !== null) {
+        keys.get(held)?.classList.remove('is-held');
+        keys.get(held)?.setAttribute('aria-pressed', 'false');
+      }
+      held = midi !== null && keys.has(midi) ? midi : null;
+      if (held !== null) {
+        keys.get(held)?.classList.add('is-held');
+        keys.get(held)?.setAttribute('aria-pressed', 'true');
+      }
+    },
     dispose(): void {
+      endDrag();
+      window.removeEventListener('blur', endDrag);
       resizeObserver.disconnect();
       cancelAnimationFrame(layoutFrame);
       cancelFollowing();

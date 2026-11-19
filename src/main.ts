@@ -10,7 +10,6 @@ app.innerHTML = `
     <aside class="sidebar">
       <a class="brand" href="./">SoundShape<span>Песочница звука</span></a>
       <nav aria-label="Главы"><p class="nav-label">Исследования</p></nav>
-      <p class="sidebar-note">Слушать. Смотреть.<br>Задавать вопросы.</p>
     </aside>
     <main id="chapter-content"></main>
   </div>

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><title>SoundShape — проверка эталонного звука</title>
+<h1>Проверка озвучивания ноты</h1><pre id="results">Выполняется…</pre>
+<script type="module">
+import { ReferenceTonePlayer } from '/src/audio/reference-tone-player.ts';
+const results=[];
+const assert=(condition,message)=>{if(!condition)throw new Error(message);results.push(`OK: ${message}`);};
+const originalContext=window.AudioContext;
+const rate=48000;
+async function render({note=69,volume=1,enabled=true,endNote,disable=false}={}) {
+  const context=new OfflineAudioContext(1,rate*0.4,rate);
+  const resume=context.resume.bind(context);
+  let created=0;
+  window.AudioContext=function(){created++;return context;};
+  context.resume=async()=>{};context.close=async()=>{};
+  const player=new ReferenceTonePlayer();
+  let switchedAt=0;
+  try {
+    player.setVolume(volume);
+    player.setNote(note);
+    if(created!==0)throw new Error('Контекст создан без включения озвучивания');
+    await player.setEnabled(enabled);
+    if(endNote!==undefined||disable) {
+      const paused=context.suspend(0.2);
+      const rendered=context.startRendering();
+      await paused;
+      switchedAt=context.currentTime;
+      if(endNote!==undefined)player.setNote(endNote);
+      if(disable)await player.setEnabled(false);
+      await resume();
+      return {samples:(await rendered).getChannelData(0),created,switchedAt};
+    }
+    return {samples:(await context.startRendering()).getChannelData(0),created,switchedAt};
+  } finally {
+    player.dispose();window.AudioContext=originalContext;
+  }
+}
+const rms=data=>{const tail=data.slice(rate*0.3);return Math.sqrt(tail.reduce((s,x)=>s+x*x,0)/tail.length);};
+function difference(data,frequency,amplitude=0.25,switchedAt=0,previousFrequency=frequency) {
+  const error=data.slice(rate*0.3).reduce((sum,value,i)=>{
+    const t=(rate*0.3+i)/rate;
+    const expected=amplitude*Math.sin(2*Math.PI*(previousFrequency*switchedAt+frequency*(t-switchedAt)));
+    return sum+(value-expected)**2;
+  },0)/(rate*0.1);
+  return Math.sqrt(error);
+}
+try {
+  const disabled=await render({enabled:false});
+  assert(disabled.created===0&&rms(disabled.samples)===0,'Выключенное озвучивание не создаёт AudioContext и не издаёт звук');
+  const waiting=await render({note:null});
+  assert(rms(waiting.samples)===0,'Включение без распознанной ноты остаётся тихим');
+  const a=await render();
+  assert(difference(a.samples,440)<0.00001,'Нота MIDI 69 воспроизводится точно на 440 Гц');
+  const low=await render({note:45});
+  assert(difference(low.samples,110)<0.00001,'Ля большой октавы воспроизводится на 110 Гц');
+  const quiet=await render({volume:0.5});
+  assert(Math.abs(rms(quiet.samples)/rms(a.samples)-0.5)<0.00001,'Регулятор громкости меняет амплитуду эталона');
+  assert(a.samples.every(x=>Number.isFinite(x)&&Math.abs(x)<=0.25001),'Максимальная амплитуда ограничена 0,25');
+  const changed=await render({endNote:70});
+  assert(difference(changed.samples,440*2**(1/12),0.25,changed.switchedAt,440)<0.00001,'Смена ноты точная, без портаменто и скачка фазы');
+  assert(rms((await render({endNote:null})).samples)<0.0000001,'Прекращение распознавания плавно гасит звук');
+  assert(rms((await render({disable:true})).samples)<0.0000001,'Выключение озвучивания плавно гасит звук');
+  assert(rms((await render({volume:0})).samples)===0,'Нулевая громкость даёт тишину');
+  assert(Math.abs(a.samples[0])<0.000001&&Math.abs(a.samples[1])<0.001,'Начало звука имеет плавную огибающую');
+  results.push('Все проверки пройдены.');
+} catch(error) {results.push(`FAIL: ${error.message}`);}
+window.AudioContext=originalContext;
+document.querySelector('#results').textContent=results.join('\n');
+</script></html>
