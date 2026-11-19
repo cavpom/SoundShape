@@ -18,6 +18,7 @@ function createNoteRange(firstMidi: number, lastMidi: number): readonly Note[] {
 // MIDI is the stable identity, independent of labels.
 export const pianoNotes = createNoteRange(60, 83); // C4–B5: two complete octaves.
 export const timbreNotes = createNoteRange(45, 83); // A2 (110 Hz)–B5.
+export const tunerNotes = createNoteRange(36, 84); // C2–C6.
 
 export function noteLabel(note: Note): string {
   return `${note.name}${note.octave}`;

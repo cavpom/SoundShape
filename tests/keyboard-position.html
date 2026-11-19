@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><title>SoundShape — положение голоса</title>
+<h1>Проверка положения голоса на клавиатуре</h1><pre id="results"></pre>
+<script type="module">
+import { interpolatePitchPosition } from '/src/ui/pitch-keyboard.ts';
+const results=[];
+const assert=(condition,message)=>{if(!condition)throw new Error(message);results.push(`OK: ${message}`);};
+try {
+  // C, C sharp, D, D sharp, E, F: the E–F distance is twice the C–C sharp distance.
+  const centres=new Map([[60,23],[61,46],[62,69],[63,92],[64,115],[65,161]]);
+  assert(interpolatePitchPosition(60,centres)===23&&interpolatePitchPosition(65,centres)===161,'Точные ноты попадают в центры клавиш');
+  assert(interpolatePitchPosition(60.5,centres)===34.5,'50 центов между До и До♯ — середина короткого промежутка');
+  assert(interpolatePitchPosition(64.5,centres)===138,'50 центов между Ми и Фа — середина длинного промежутка');
+  assert(Math.abs(interpolatePitchPosition(64.3,centres)-128.8)<1e-10,'30 центов используют реальную ширину конкретного полутона');
+  let previous=-Infinity;
+  for(let pitch=60;pitch<=65;pitch+=0.01) {
+    const position=interpolatePitchPosition(pitch,centres);
+    if(position<previous)throw new Error('Положение перестало быть монотонным');
+    previous=position;
+  }
+  assert(true,'Метка непрерывно движется вправо при повышении голоса, включая границы клавиш');
+  assert(interpolatePitchPosition(59,centres)===23&&interpolatePitchPosition(66,centres)===161,'Положение за пределами диапазона ограничивается краями');
+  assert(interpolatePitchPosition(NaN,centres)===null&&interpolatePitchPosition(60,new Map())===null,'Нет ложной метки при отсутствии корректного положения');
+  results.push('Все проверки пройдены.');
+} catch(error) {results.push(`FAIL: ${error.message}`);}
+document.querySelector('#results').textContent=results.join('\n');
+</script></html>

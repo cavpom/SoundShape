@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Проверка тюнера · SoundShape</title></head>
+<body>
+  <div style="padding:16px;background:#e5ede4;font:16px system-ui;display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+    <strong>Тестовый сигнал вместо микрофона</strong>
+    <label>Частота <select id="test-frequency"><option value="110">110 Гц</option><option value="430">430 Гц</option><option value="434.946168955">Ля4 −20 центов</option><option value="440">440 Гц</option><option value="445.112553732">Ля4 +20 центов</option><option value="880">880 Гц</option></select></label>
+    <label>Амплитуда <input id="test-gain" type="range" min="0" max="100" value="30"></label>
+    <label>Сценарий <select id="test-mode"><option value="tone">Тон</option><option value="denied">Доступ запрещён</option><option value="missing">Нет микрофона</option><option value="delayed">Доступ через 1 секунду</option></select></label>
+    <button id="test-ended">Отключить источник</button><span id="test-tracks">Остановлено дорожек: 0</span>
+  </div>
+  <main id="fixture" style="max-width:1100px"></main>
+  <script type="module">
+    import '/src/style.css';
+    import { mountVoiceTuner } from '/src/chapters/voice-tuner.ts';
+    let context, oscillator, gain, currentStream;
+    let stopped=0;
+    Object.defineProperty(navigator.mediaDevices,'getUserMedia',{configurable:true,value:async()=>{
+      const mode=document.querySelector('#test-mode').value;
+      if(mode==='denied')throw new DOMException('Test denial','NotAllowedError');
+      if(mode==='missing')throw new DOMException('Test missing device','NotFoundError');
+      context=new AudioContext();
+      await context.resume();
+      oscillator=context.createOscillator();
+      oscillator.frequency.value=Number(document.querySelector('#test-frequency').value);
+      gain=context.createGain();gain.gain.value=Number(document.querySelector('#test-gain').value)/100;
+      const destination=context.createMediaStreamDestination();
+      oscillator.connect(gain);gain.connect(destination);oscillator.start();
+      const stream=destination.stream;
+      const sourceContext=context;
+      currentStream=stream;
+      for(const track of stream.getTracks()) {
+        const stop=track.stop.bind(track);
+        let ended=false;
+        track.stop=()=>{if(ended)return;ended=true;stop();stopped++;document.querySelector('#test-tracks').textContent=`Остановлено дорожек: ${stopped}`;void sourceContext.close();};
+      }
+      if(mode==='delayed')await new Promise(resolve=>setTimeout(resolve,1000));
+      return stream;
+    }});
+    document.querySelector('#test-frequency').addEventListener('change',event=>{if(oscillator&&context.state==='running')oscillator.frequency.setValueAtTime(Number(event.target.value),context.currentTime);});
+    document.querySelector('#test-gain').addEventListener('input',event=>{if(gain&&context.state==='running')gain.gain.setValueAtTime(Number(event.target.value)/100,context.currentTime);});
+    document.querySelector('#test-ended').addEventListener('click',()=>{
+      for(const track of currentStream?.getTracks()??[]) {track.stop();track.dispatchEvent(new Event('ended'));}
+    });
+    mountVoiceTuner(document.querySelector('#fixture'));
+  </script>
+</body></html>

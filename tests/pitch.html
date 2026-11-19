@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><title>SoundShape — проверка высоты голоса</title>
+<h1>Проверка распознавания высоты</h1><pre id="results">Выполняется…</pre>
+<script type="module">
+import { estimatePitch, levelDbfs, pitchFromFrequency, PitchTracker } from '/src/music/pitch.ts';
+const results=[];
+const assert=(condition,message)=>{if(!condition)throw new Error(message);results.push(`OK: ${message}`);};
+function tone(frequency, sampleRate, {amplitude=0.3, harmonics=false, noise=0, dc=0}={}) {
+  const count=2**Math.ceil(Math.log2(sampleRate*0.08));
+  let seed=12345;
+  return Float32Array.from({length:count},(_,i)=>{
+    const phase=2*Math.PI*frequency*i/sampleRate;
+    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
+    const signal=harmonics?0.15*Math.sin(phase)+0.4*Math.sin(2*phase)+0.2*Math.sin(3*phase):amplitude*Math.sin(phase);
+    return signal+noise*(seed/4294967296*2-1)+dc;
+  });
+}
+try {
+  for(const sampleRate of [44100,48000,96000]) {
+    for(const frequency of [65.4064,110,220,261.6256,440,987.7666,1046.5023]) {
+      const estimate=estimatePitch(tone(frequency,sampleRate),sampleRate);
+      if(!estimate||Math.abs(1200*Math.log2(estimate.frequency/frequency))>=3)throw new Error(`Неточность частоты ${frequency} Гц при ${sampleRate} Гц`);
+    }
+    assert(true,`Чистые тоны 65–1047 Гц при ${sampleRate} Гц: ошибка меньше 3 центов`);
+  }
+  const voice=estimatePitch(tone(110,48000,{harmonics:true,noise:0.025,dc:0.12}),48000);
+  assert(voice&&Math.abs(1200*Math.log2(voice.frequency/110))<3,'Основной тон 110 Гц найден при более сильной второй гармонике, шуме и DC');
+  assert(estimatePitch(new Float32Array(4096),48000)===null,'Тишина не считается нотой');
+  const white=tone(110,48000,{amplitude:0,noise:0.4});
+  assert(estimatePitch(white,48000)===null,'Белый шум не считается нотой');
+  const impulse=new Float32Array(4096);impulse[1000]=1;
+  assert(estimatePitch(impulse,48000)===null,'Одиночный импульс не считается нотой');
+  const reading=pitchFromFrequency(430);
+  assert(reading.midi===69&&Math.abs(reading.cents+39.8)<0.1,'430 Гц: ближайшая ля4, отклонение около −40 центов');
+  assert(pitchFromFrequency(110).midi===45&&pitchFromFrequency(110).cents===0,'110 Гц: ля2 без отклонения');
+  assert(levelDbfs(new Float32Array(4096).fill(0.2))===-120,'Постоянное смещение не открывает шумовой порог');
+  const loud=levelDbfs(tone(440,48000,{amplitude:0.3}));
+  const quiet=levelDbfs(tone(440,48000,{amplitude:0.003}));
+  assert(Math.abs(loud-quiet-40)<0.1&&quiet< -45&&loud> -45,'Порог −45 дБFS отделяет тихий сигнал от громкого; разница амплитуд 100 раз = 40 дБ');
+  const tracker=new PitchTracker();
+  const a={frequency:110,confidence:0.99};
+  assert(tracker.update(a,0)===null&&tracker.update(a,160)===null,'Короткий тон не подтверждается сразу');
+  assert(tracker.update(a,200)?.midi===45,'Устойчивый тон подтверждается примерно за 0,2 с');
+  assert(tracker.update({frequency:220,confidence:0.99},240)?.midi===45,'Короткий скачок не переключает клавишу');
+  assert(tracker.update(a,280)?.midi===45,'После помехи возвращается исходная нота');
+  assert(tracker.update(null,450)===null,'Подсветка снимается после прекращения голоса');
+  tracker.reset();
+  assert(tracker.update({frequency:110,confidence:0.2},1000)===null,'Неуверенная оценка не подсвечивает клавишу');
+  results.push('Все проверки пройдены.');
+} catch(error) { results.push(`FAIL: ${error.message}`); }
+document.querySelector('#results').textContent=results.join('\n');
+</script></html>
